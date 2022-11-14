@@ -2,7 +2,7 @@ import pymcfost as mcfost
 
 
 # Run mcfost to generate model with new parameters
-def write_run_mcfost(inclination, stellar_mass, scale_height, r_c, r_in, flaring_exp, PA, dust_param, counter):
+def write_run_mcfost(counter, inclination, stellar_mass, scale_height, r_c, r_in, flaring_exp, PA, dust_param, vturb=0):
     counter[0]+=1
     # Rewrite mcfost para file
     updating = mcfost.Params('dmtau.para')
@@ -15,7 +15,7 @@ def write_run_mcfost(inclination, stellar_mass, scale_height, r_c, r_in, flaring
     updating.zones[0].flaring_exp = flaring_exp
     updating.map.PA = PA
     updating.simu.viscosity = dust_param
-    #updating.mol.v_turb = vturb
+    updating.mol.v_turb = vturb
     # Update para file
     updating.writeto('dmtau.para')
     # Run mcfost
