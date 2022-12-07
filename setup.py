@@ -1,9 +1,9 @@
 from setuptools import setup
 
-setup(name='discpimms',
+setup(name='myfittingpackage',
       description='Disc parameter fitting with MCFOST models',
-      url='http://github.com/caitlynhardiman/discpimms',
+      url='http://github.com/caitlynhardiman/myfittingpackage',
       author='Caitlyn Hardiman',
       license='',
-      packages=['discpimms'],
+      packages=['myfittingpackage'],
       zip_safe=False)

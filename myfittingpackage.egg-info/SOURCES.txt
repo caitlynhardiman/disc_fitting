@@ -1,0 +1,13 @@
+setup.py
+myfittingpackage/__init__.py
+myfittingpackage/bilby_likelihood.py
+myfittingpackage/disc.py
+myfittingpackage/fitting.py
+myfittingpackage/generate_model.py
+myfittingpackage/priors.py
+myfittingpackage/vis_disc.py
+myfittingpackage.egg-info/PKG-INFO
+myfittingpackage.egg-info/SOURCES.txt
+myfittingpackage.egg-info/dependency_links.txt
+myfittingpackage.egg-info/not-zip-safe
+myfittingpackage.egg-info/top_level.txt

@@ -1,0 +1,13 @@
+setup.py
+discpimms/__init__.py
+discpimms/bilby_likelihood.py
+discpimms/disc.py
+discpimms/fitting.py
+discpimms/generate_model.py
+discpimms/priors.py
+discpimms/vis_disc.py
+discpimms.egg-info/PKG-INFO
+discpimms.egg-info/SOURCES.txt
+discpimms.egg-info/dependency_links.txt
+discpimms.egg-info/not-zip-safe
+discpimms.egg-info/top_level.txt

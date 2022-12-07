@@ -1,0 +1,6 @@
+Metadata-Version: 2.1
+Name: myfittingpackage
+Version: 0.0.0
+Summary: Disc parameter fitting with MCFOST models
+Home-page: http://github.com/caitlynhardiman/myfittingpackage
+Author: Caitlyn Hardiman

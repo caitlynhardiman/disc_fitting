@@ -42,9 +42,9 @@ class standard_likelihood(bilby.Likelihood):
 
 class csalt_likelihood(bilby.Likelihood):
 
-    from csalt import parametric_disk_mcfost, data, fit
+    from csalt import parametric_disk_mcfost, fit, models
 
-    def __init__(self, data, ):
+    def __init__(self, params, data, fixed):
 
 
 
@@ -75,15 +75,17 @@ class csalt_likelihood(bilby.Likelihood):
         # might need to hardcode in some DM Tau visibility parameters for now
         # need to generate the csalt model previously so it doesn't need to be done every time
 
-        mcfost_model = parametric_disk(params)
-        fixed = nu_rest, FOV, Npix, dist, cfg_dict
+
+        # Christophe's part - make mcfost model in csalt and return
+        mcfost_model = parametric_disk_mcfost.parametric_disk(params)
 
         global data_
-        data_ = data.fitdata(datafile, vra=vra, vcensor=vcensor, nu_rest=fixed[0], chbin=chbin)
-
+        data_ = data
         global fixed_
         fixed_ = fixed
 
+        # calculate likelihood
+        
         likelihood = fit.lnprob(params)
 
         return likelihood
