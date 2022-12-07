@@ -258,7 +258,7 @@ class Disc:
     def bilby_mcmc_fit(self, ranges, convolve: bool = True, method):
 
         import bilby
-        from bilby_likelihood import myLikelihood
+        from bilby_likelihood import standard_likelihood
         import multiprocess
 
         # Labels for bilby directories
@@ -283,6 +283,48 @@ class Disc:
         else:
             # error - needs to be cube or line
             return
+
+        # And run sampler
+        if __name__ == "__main__":
+            result = bilby.run_sampler(
+            likelihood=likelihood, priors=priors, sampler='emcee',
+            nwalkers = 90,
+            nsteps=100,
+            npool=8)
+
+        result.plot_corner()
+
+##################################################################################
+
+
+class Vis_Disc:
+
+    def __init__(self,
+                 ms_file: None,
+                 # potetially observing properties? Depends if they can be read from the ms file
+                 **kwargs):
+
+        # read in ms file
+        # convert to csalt format if required?
+        # obtain observing properties from file or define them here to be passed on later to csalt in the likelihood
+
+
+
+    def visibility_mcmc_fit(self, ranges):
+
+        import bilby
+        from bilby_likelihood import csalt_likelihood
+        import multiprocess
+
+        # Labels for bilby directories
+        label = 'visibility'
+        outdir = 'bilby_'+label
+
+        # Set up priors
+
+        # Need to pass disc parameters to csalt_likelihood - make them into an attribute? could set fixed straight away
+
+        likelihood = csalt_likelihood(disc parameters need to go in here as well as csalt options)
 
         # And run sampler
         if __name__ == "__main__":
