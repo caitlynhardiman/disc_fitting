@@ -1,13 +1,22 @@
 import numpy as np
+import bilby
+import pymcfost as mcfost
+import os
+import subprocess
+import multiprocess
 
-class standard_likelihood(bilby.Likelihood):
-    def __init__(self, x, y, sigma, function):
+class mcfost_likelihood(bilby.Likelihood):
+    def __init__(self, x, y, sigma, function, vsyst):
 
         self.x = x
         self.y = y
         self.sigma = sigma
-        self.N = len(x)
+        n = 1
+        for i in range(len(y.shape)):
+            n = n*y.shape[i]
+        self.N = n
         self.function = function
+        self.vsyst = vsyst
 
         super().__init__(parameters={'inclination': None,
                                      'stellar_mass': None,
@@ -17,7 +26,9 @@ class standard_likelihood(bilby.Likelihood):
                                      'flaring_exp': None,
                                      'PA': None,
                                      'dust_param': None,
-                                     'vturb': None})
+                                     'vturb': None,
+                                     'dust_mass': None, 
+                                     'gasdust_ratio': None})
 
 
     def log_likelihood(self):
@@ -31,8 +42,10 @@ class standard_likelihood(bilby.Likelihood):
         pa = self.parameters['PA']
         dust_param = self.parameters['dust_param']
         vturb = self.parameters['vturb']
+        dust_mass = self.parameters['dust_mass']
+        gasdust_ratio = self.parameters['gasdust_ratio']
 
-        mcfost_model = self.function(self.x, inc, mass, h, rc, rin, psi, pa, dust_param, vturb)
+        mcfost_model = self.function(self.x, inc, mass, h, rc, rin, psi, pa, dust_param, vturb, dust_mass, gasdust_ratio, self.vsyst)
         res = self.y - mcfost_model
 
         return -0.5 * (np.sum((res / self.sigma)**2)
@@ -40,56 +53,52 @@ class standard_likelihood(bilby.Likelihood):
 
 
 
-class csalt_likelihood(bilby.Likelihood):
+    def cube_flux(velax, inc, mass, h, rc, rin, psi, pa, dust_param, vturb, dust_mass, gasdust_ratio, vsyst, ozstar=False):
+        # Rewrite mcfost para file
+        pool_id = multiprocess.current_process()
+        pool_id = pool_id.pid
+        if ozstar:
+            jobfs = os.getenv("JOBFS")
+            directory = jobfs+"/"+str(pool_id)
+        else:
+            directory = str(pool_id)
+        if os.path.isdir(directory) == False:
+            subprocess.call("mkdir "+directory, shell = True)
+       
+        updating = mcfost.Params('model.para')
+        if inc is not None:
+            updating.map.RT_imin = inc+180
+            updating.map.RT_imax = inc+180
+        if mass is not None:
+            updating.stars[0].M = mass
+        if h is not None:
+            updating.zones[0].h0 = h
+        if rc is not None:
+            updating.zones[0].Rc = rc
+        if rin is not None:
+            updating.zones[0].Rin = rin
+        if psi is not None:
+            updating.zones[0].flaring_exp = psi
+        if pa is not None:
+            updating.map.PA = pa
+        if dust_param is not None:
+            updating.simu.viscosity = dust_param
+        if vturb is not None:
+            updating.mol.v_turb = vturb
+        if dust_mass is not None:
+            updating.zones[0].dust_mass = dust_mass
+        if gasdust_ratio is not None:
+            updating.zones[0].gas_to_dust_ratio = gasdust_ratio
 
-    from csalt import parametric_disk_mcfost, fit, models
-
-    def __init__(self, params, data, fixed):
-
-
-
-        super().__init__(parameters={'inclination': None,
-                                     'stellar_mass': None,
-                                     'scale_height': None,
-                                     'r_c': None,
-                                     'r_in': None,
-                                     'flaring_exp': None,
-                                     'PA': None,
-                                     'dust_param': None,
-                                     'vturb': None})
-
-
-    def log_likelihood(self):
-
-        inc = self.parameters['inclination']
-        mass = self.parameters['stellar_mass']
-        h = self.parameters['scale_height']
-        rc = self.parameters['r_c']
-        rin = self.parameters['r_in']
-        psi = self.parameters['flaring_exp']
-        pa = self.parameters['PA']
-        dust_param = self.parameters['dust_param']
-        vturb = self.parameters['vturb']
-
-        # call csalt here with the parameters and the mcfost option
-        # might need to hardcode in some DM Tau visibility parameters for now
-        # need to generate the csalt model previously so it doesn't need to be done every time
-
-
-        # Christophe's part - make mcfost model in csalt and return
-        mcfost_model = parametric_disk_mcfost.parametric_disk(params)
-
-        global data_
-        data_ = data
-        global fixed_
-        fixed_ = fixed
-
-        # calculate likelihood
-        
-        likelihood = fit.lnprob(params)
-
-        return likelihood
-
-
-
-###############################################################################
+        para = directory+'/csalt_'+str(pool_id)+'.para'
+        updating.writeto(para)
+        origin = os.getcwd()
+        os.chdir(directory)
+        if vsyst is not None:
+            options = "-mol -casa -photodissociation -v_syst " + str(vsyst)
+        else:
+            options = "-mol -casa -photodissociation"
+        mcfost.run('csalt_'+str(pool_id)+'.para', options=options, delete_previous=True, logfile='mcfost.log')
+        os.chdir(origin)
+        model = mcfost.Line(directory+'/data_CO/')
+        return model.lines

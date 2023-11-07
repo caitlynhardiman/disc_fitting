@@ -5,82 +5,28 @@ import casa_cube as casa
 from scipy.optimize import shgo
 import os
 import subprocess
+import multiprocess
+import importlib
 
-
-
-class Param_Ranges:
-
-    def __init__(self,
-                 inc: tuple = None,
-                 stellar_mass: tuple = None,
-                 scale_height: tuple = None,
-                 r_c: tuple = None,
-                 r_in: tuple = None,
-                 psi: tuple = None,
-                 PA: tuple = None,
-                 dust_alpha: tuple = None,
-                 vturb: tuple = None):
-
-        params = []
-        bounds = []
-
-        self.inc = inc
-        self.mass = stellar_mass
-        self.h = scale_height
-        self.rc = r_c
-        self.rin = r_in
-        self.psi = psi
-        self.PA = PA
-        self.dust_alpha = dust_alpha
-        self.vturb = vturb
-
-        if inc is not None:
-            params.append('Inclination')
-            bounds.append(inc)
-        if stellar_mass is not None:
-            params.append('Stellar Mass')
-            bounds.append(stellar_mass)
-        if scale_height is not None:
-            params.append('Scale Height')
-            bounds.append(scale_height)
-        if r_c is not None:
-            params.append('R_c')
-            bounds.append(r_c)
-        if r_in is not None:
-            params.append('R_in')
-            bounds.append(r_in)
-        if psi is not None:
-            params.append('Flaring Exponent')
-            bounds.append(psi)
-        if PA is not None:
-            params.append('PA')
-            bounds.append(PA)
-        if dust_alpha is not None:
-            params.append('Dust α')
-            bounds.append(dust_alpha)
-        if vturb is not None:
-            params.append('Vturb')
-            bounds.append(vturb)
-
-        self.params = params
-        self.bounds = bounds
 
 
 class Disc:
 
     def __init__(self,
-                 cube: None,
-                 zoom: float = None,
-                 v_syst: float = None,
-                 v_offset: float = None,
+                 datacube: None,
                  uncertainty: float = None,
-                 interpolate: bool = True,
                  **kwargs):
 
 
-        if isinstance(cube,str):
+        if isinstance(datacube, str):
             print("Reading cube ...")
-            cube = casa.Cube(cube, zoom=zoom)
+            cube = casa.Cube(datacube)
+
+        if cube.nx > 256:
+            rescale = 256/cube.nx
+            print('Need to resize cube...')
+            cube = casa.Cube(datacube, zoom=rescale)
+
 
         self.cube = cube
         self.beam_area = self.cube.bmin * self.cube.bmaj * np.pi / (4.0 * np.log(2.0))
@@ -88,70 +34,28 @@ class Disc:
         self.offset = v_offset
         self.uncertainty = uncertainty * self.pix_area/self.beam_area
 
-        if interpolate:
-            if v_offset is not None:
-                x, y = self._interpolate_cube()
-            else:
-                print("Need offset value to interpolate!")
-        else:
-            # fix it otherwise
-            x = np.array([self.cube.velocity[137], self.cube.velocity[140], self.cube.velocity[143],
-                      self.cube.velocity[146], self.cube.velocity[149], self.cube.velocity[152],
-                      self.cube.velocity[155], self.cube.velocity[158], self.cube.velocity[161]])
-            flux_vals = np.array([self.cube.image[137], self.cube.image[140], self.cube.image[143],
-                              self.cube.image[146], self.cube.image[149], self.cube.image[152],
-                              self.cube.image[155], self.cube.image[158], self.cube.image[161]])
-            flux_vals[np.isnan(flux_vals)] = 0
-            flux_vals = flux_vals*self.pix_area/self.beam_area
-            y = flux_vals
+        # finding 9 channels for comparison - assuming cube is centered on systemic velocity
 
-        self.channels = x
-        self.fluxes = y
+        flux_vals = np.array(self.cube.image)
+        flux_vals[np.isnan(flux_vals)] = 0
+        flux_vals = flux_vals*self.pix_area/self.beam_area
+        lp_fluxes = np.sum(flux_vals[:,:,:], axis=(1, 2))
 
+        systemic_index = int(self.cube.nv/2)
+        left_peak = np.argmax(lp_fluxes[systemic_index:])
+        right_peak = np.argmax(lp_fluxes[:systemic_index])+systemic_index
+        spacing = np.max(np.abs(left_peak-systemic_index), np.abs(right_peak-systemic_index))
+        chans = []
+        for i in range(-4, 5):
+            chans.append(systemic_index+i*spacing)
+        vel_chans = []
+        fluxes = []
+        for chan in chans:
+            vel_chans.append(self.cube.velocity[chan])
+            fluxes.append(self.cube.image[chan])
 
-    def _interpolate_cube(self):
-        # this needs to be consistent for any cube!!! atm my 9 channels
-        original_velocity = np.array([self.cube.velocity[137], self.cube.velocity[140], self.cube.velocity[143],
-                                      self.cube.velocity[146], self.cube.velocity[149], self.cube.velocity[152],
-                                      self.cube.velocity[155], self.cube.velocity[158], self.cube.velocity[161]])
-        x = []
-        for vel in original_velocity:
-            x.append(vel+self.offset)
-        y = []
-        for vel in x:
-            flux = self._get_channel(vel)
-            flux_val = flux * self.pix_area/self.beam_area
-            y.append(flux_val)
-
-        return x, y
-
-    # Interpolation for the data cube
-
-    def _get_channel(self, v):
-        """
-           get channel corresponding to specified velocity, by interpolating from neighbouring channels
-        """
-        iv = np.abs(self.cube.velocity - v).argmin()
-
-        # do not interpolate past bounds of the array, ends just return end channel
-        ivp1 = iv+1
-        ivm1 = iv-1
-        if (ivp1 > len(self.cube.velocity)-1 or ivm1 < 0):
-           return self.cube.image[iv,:,:],iv,iv
-
-        # deal with channels in either increasing or decreasing order
-        if ((self.cube.velocity[iv] < v and self.cube.velocity[ivp1] >= v) or (self.cube.velocity[ivp1] <= v and self.cube.velocity[iv] > v)):
-           iv1 = ivp1
-        else:
-           iv1 = ivm1
-
-        c1 = np.nan_to_num(self.cube.image[iv,:,:])
-        c2 = np.nan_to_num(self.cube.image[iv1,:,:])
-        dv = v - self.cube.velocity[iv]
-        deltav = self.cube.velocity[iv1] - self.cube.velocity[iv]
-        x = dv/deltav
-        #print("retrieving channel at v=",v," between ",exocube.velocity[iv]," and ",exocube.velocity[iv1]," pos = ",x)
-        return c1*(1.-x) + x*c2
+        self.channels = np.array(vel_chans)
+        self.fluxes = np.array(fluxes)
 
 
     def _convolve_model(self, mcfost_model):
@@ -249,13 +153,8 @@ class Disc:
         self._best_result(filename, ranges, best_fit, best_chi)
 
 
-    #def shgo_line_profile_fit(self, bounds):
 
-        # do stuff
-
-
-
-    def bilby_mcmc_fit(self, ranges, convolve: bool = True, method):
+    def bilby_mcmc_fit(self, ranges, method, convolve: bool = True):
 
         import bilby
         from bilby_likelihood import standard_likelihood
@@ -266,82 +165,147 @@ class Disc:
         outdir = 'bilby'+method
 
         # Using only uniform priors for now
-        parameters = ['inc', 'stellar_mass', 'scale_height', 'r_c', 'r_in', 'psi', 'PA', 'dust_alpha', 'vturb']
+        parameters = ['inc', 'stellar_mass', 'scale_height', 'r_c', 'r_in', 'psi', 'PA', 'dust_alpha', 'vturb', 'dust_mass', 'gasdust_ratio']
         priors = dict()
 
         for param in parameters:
             if ranges.param is not None:
-                priors[param] = bilby.core.prior.Uniform(ranges.param)
+                if param == 'dust_alpha':
+                    priors[param] = bilby.core.prior.LogUniform(ranges.param)
+                # gaussian
+                if param == 'inc' or param == 'PA':
+                    priors[param] = bilby.core.prior.Gaussian(ranges.param)
+                # truncated gaussian
+                if param == 'psi':
+                    priors[param] = bilby.core.prior.TruncatedGaussian(ranges.param)
+                else:
+                    priors[param] = bilby.core.prior.Uniform(ranges.param)
 
         # need to differentiate between methods here
-        if method='cube':
+        if method=='cube':
             likelihood = myLikelihood(self.channels, self.fluxes, self.uncertainty, cube_flux)
-        elif method='line':
+        elif method=='line':
             lp_fluxes = np.sum(self.fluxes[:,:,:], axis=(1, 2))
             uncertainty = np.empty(len(lp_fluxes)); uncertainty.fill(2.0)
             likelihood = myLikelihood(self.channels, lp_fluxes, uncertainty, line_profile_flux)
         else:
             # error - needs to be cube or line
-            return
+            return 0
 
         # And run sampler
         if __name__ == "__main__":
             result = bilby.run_sampler(
             likelihood=likelihood, priors=priors, sampler='emcee',
-            nwalkers = 90,
-            nsteps=100,
-            npool=8)
+            nwalkers = 64,
+            nsteps=20,
+            npool=4)
 
         result.plot_corner()
 
 ##################################################################################
 
 
-class Vis_Disc:
+class image_plane_fit:
 
     def __init__(self,
-                 ms_file: None,
-                 # potetially observing properties? Depends if they can be read from the ms file
+                 datacube: None,
+                 uncertainty: float = None,
                  **kwargs):
 
-        # read in ms file
-        # convert to csalt format if required?
-        # obtain observing properties from file or define them here to be passed on later to csalt in the likelihood
+        if isinstance(datacube, str):
+            print("Reading cube ...")
+            cube = casa.Cube(datacube)
+        else:
+            print('Need a valid cube name!')
+            return
 
+        if cube.nx > 256:
+            rescale = 256/cube.nx
+            print('Need to resize cube...')
+            cube = casa.Cube(datacube, zoom=rescale)
 
+        self.cube = cube
+        self.beam_area = self.cube.bmin * self.cube.bmaj * np.pi / (4.0 * np.log(2.0))
+        self.pix_area = self.cube.pixelscale**2
+        self.offset = v_offset
+        self.uncertainty = uncertainty * self.pix_area/self.beam_area
 
-    def visibility_mcmc_fit(self, ranges):
+        # finding 9 channels for comparison - assuming cube is centered on systemic velocity
+
+        flux_vals = np.array(self.cube.image)
+        flux_vals[np.isnan(flux_vals)] = 0
+        flux_vals = flux_vals*self.pix_area/self.beam_area
+        lp_fluxes = np.sum(flux_vals[:,:,:], axis=(1, 2))
+
+        systemic_index = int(self.cube.nv/2)
+        left_peak = np.argmax(lp_fluxes[systemic_index:])
+        right_peak = np.argmax(lp_fluxes[:systemic_index])+systemic_index
+        spacing = np.max(np.abs(left_peak-systemic_index), np.abs(right_peak-systemic_index))
+        chans = []
+        for i in range(-4, 5):
+            chans.append(systemic_index+i*spacing)
+        vel_chans = []
+        fluxes = []
+        for chan in chans:
+            vel_chans.append(self.cube.velocity[chan])
+            fluxes.append(self.cube.image[chan])
+
+        self.channels = np.array(vel_chans)
+        self.fluxes = np.array(fluxes)
+        self.vsyst = self.cube.velocity[systemic_index]
+
+        
+    def bilby_mcmc_fit(self, method='cube'):
 
         import bilby
-        from bilby_likelihood import csalt_likelihood
-        import multiprocess
+        from bilby_likelihood import mcfost_likelihood
 
         # Labels for bilby directories
-        label = 'visibility'
-        outdir = 'bilby_'+label
+        label = method
+        outdir = 'bilby'+method
 
-        # Set up priors?
+        if method=='cube':
+            likelihood = mcfost_likelihood(self.channels, self.fluxes, self.uncertainty, cube_flux, self.vsyst)
+        else:
+            print('only cube fitting works for now!')
+            return 0
+        
+        priors = importlib.import_module('priors.py')
+        priors_dict = priors.priors
+        bilbypriors = {}
 
-        # Dummy values
-        nu_rest = 5
-        FOV = 5
-        Npix = 5
-        dist = 5
-        cfg_dict = {}
+        for parameter in priors_dict:
+            pri_type = priors_dict[parameter][0]
+            if pri_type == 'Gaussian':
+                mu = priors_dict[parameter][1][0]
+                sigma = priors_dict[parameter][1][1]
+                bilbypriors[parameter]=bilby.core.prior.Gaussian(mu=mu, sigma=sigma, name=parameter)
+            elif pri_type == 'Uniform':
+                minimum = priors_dict[parameter][1][0]
+                maximum = priors_dict[parameter][1][1]
+                bilbypriors[parameter]=bilby.core.prior.Uniform(minimum=minimum, maximum=maximum, name=parameter)
+            elif pri_type == 'LogUniform':
+                minimum = priors_dict[parameter][1][0]
+                maximum = priors_dict[parameter][1][1]
+                bilbypriors[parameter]=bilby.core.prior.LogUniform(minimum=minimum, maximum=maximum, name=parameter)
+            elif pri_type == 'TruncatedGaussian':
+                mu = priors_dict[parameter][1][0]
+                sigma = priors_dict[parameter][1][1]
+                minimum = priors_dict[parameter][1][2]
+                maximum = priors_dict[parameter][1][3]
+                bilbypriors[parameter]=bilby.core.prior.TruncatedGaussian(mu=mu, sigma=sigma, minimum=minimum, maximum=maximum, name=parameter)
+            else:
+                print('Prior currently not implemented')
+                return 0
 
-        fixed = nu_rest, FOV, Npix, dist, cfg_dict
-        formatted_data = data.fitdata(datafile, vra=vra, vcensor=vcensor, nu_rest=fixed[0], chbin=chbin)
+        # And run sampler
+        if __name__ == "__main__":
+            result = bilby.run_sampler(
+            likelihood=likelihood, priors=bilbypriors, sampler='emcee',
+            nwalkers = 64,
+            nsteps=20,
+            npool=4, 
+            label=label,
+            outdir=outdir)
 
-        # Need to pass disc parameters to csalt_likelihood - make them into an attribute? could set fixed straight away
-
-        likelihood = csalt_likelihood(params, formatted_data, fixed)
-        #
-        # # And run sampler
-        # if __name__ == "__main__":
-        #     result = bilby.run_sampler(
-        #     likelihood=likelihood, priors=priors, sampler='emcee',
-        #     nwalkers = 90,
-        #     nsteps=100,
-        #     npool=8)
-        #
-        # result.plot_corner()
+        result.plot_corner()

@@ -7,7 +7,7 @@ import os
 import subprocess
 
 
-class Disc:
+class Disc():
 
     def __init__(self,
                  cube: None,
@@ -196,7 +196,7 @@ class Disc:
 
 
 
-    def bilby_mcmc_fit(self, ranges, convolve: bool = True, method):
+    def bilby_mcmc_fit(self, ranges, method, convolve: bool = True):
 
         import bilby
         from bilby_likelihood import standard_likelihood
@@ -215,15 +215,15 @@ class Disc:
                 priors[param] = bilby.core.prior.Uniform(ranges.param)
 
         # need to differentiate between methods here
-        if method='cube':
+        if method=='cube':
             likelihood = myLikelihood(self.channels, self.fluxes, self.uncertainty, cube_flux)
-        elif method='line':
+        elif method=='line':
             lp_fluxes = np.sum(self.fluxes[:,:,:], axis=(1, 2))
             uncertainty = np.empty(len(lp_fluxes)); uncertainty.fill(2.0)
             likelihood = myLikelihood(self.channels, lp_fluxes, uncertainty, line_profile_flux)
         else:
             # error - needs to be cube or line
-            return
+            return 0
 
         # And run sampler
         if __name__ == "__main__":
