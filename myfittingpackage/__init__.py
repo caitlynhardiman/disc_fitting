@@ -3,5 +3,5 @@ __author__ = "Caitlyn Hardiman"
 
 from .disc import *
 from .bilby_likelihood import *
-from .vis_disc import *
 from .priors import *
+from .fitting import *

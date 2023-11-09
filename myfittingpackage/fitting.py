@@ -7,6 +7,7 @@ import os
 import subprocess
 import multiprocess
 import importlib
+from myfittingpackage.bilby_likelihood import mcfost_likelihood
 
 
 
@@ -209,8 +210,15 @@ class image_plane_fit:
 
     def __init__(self,
                  datacube: None,
+                 distance: None,
                  uncertainty: float = None,
                  **kwargs):
+        
+        if distance is None:
+            print('Need to provide a distance!')
+            return
+        else:
+            self.distance = distance
 
         if isinstance(datacube, str):
             print("Reading cube ...")
@@ -227,7 +235,6 @@ class image_plane_fit:
         self.cube = cube
         self.beam_area = self.cube.bmin * self.cube.bmaj * np.pi / (4.0 * np.log(2.0))
         self.pix_area = self.cube.pixelscale**2
-        self.offset = v_offset
         self.uncertainty = uncertainty * self.pix_area/self.beam_area
 
         # finding 9 channels for comparison - assuming cube is centered on systemic velocity
@@ -238,9 +245,9 @@ class image_plane_fit:
         lp_fluxes = np.sum(flux_vals[:,:,:], axis=(1, 2))
 
         systemic_index = int(self.cube.nv/2)
-        left_peak = np.argmax(lp_fluxes[systemic_index:])
-        right_peak = np.argmax(lp_fluxes[:systemic_index])+systemic_index
-        spacing = np.max(np.abs(left_peak-systemic_index), np.abs(right_peak-systemic_index))
+        left_peak = np.argmax(lp_fluxes[:systemic_index])
+        right_peak = np.argmax(lp_fluxes[systemic_index:])+systemic_index
+        spacing = np.max([np.abs(left_peak-systemic_index), np.abs(right_peak-systemic_index)])
         chans = []
         for i in range(-4, 5):
             chans.append(systemic_index+i*spacing)
@@ -254,23 +261,41 @@ class image_plane_fit:
         self.fluxes = np.array(fluxes)
         self.vsyst = self.cube.velocity[systemic_index]
 
+        self.update_parafile()
+
+
+
+    def update_parafile(self):
+
+        import pymcfost
+
+        updating = mcfost.Params('model.para')
+
+        updating.map.distance = self.distance
+        updating.mol.molecule[0].nv = len(self.channels)
+        updating.mol.molecule[0].v_min = self.channels[0]
+        updating.mol.molecule[0].v_max = self.channels[-1]
+
+        updating.writeto('model.para')
+
+
+
         
     def bilby_mcmc_fit(self, method='cube'):
 
         import bilby
-        from bilby_likelihood import mcfost_likelihood
 
         # Labels for bilby directories
         label = method
         outdir = 'bilby'+method
 
         if method=='cube':
-            likelihood = mcfost_likelihood(self.channels, self.fluxes, self.uncertainty, cube_flux, self.vsyst)
+            likelihood = mcfost_likelihood(self.channels, self.fluxes, self.uncertainty, method, self.vsyst)
         else:
             print('only cube fitting works for now!')
             return 0
         
-        priors = importlib.import_module('priors.py')
+        priors = importlib.import_module('priors')
         priors_dict = priors.priors
         bilbypriors = {}
 
@@ -299,13 +324,9 @@ class image_plane_fit:
                 return 0
 
         # And run sampler
-        if __name__ == "__main__":
-            result = bilby.run_sampler(
-            likelihood=likelihood, priors=bilbypriors, sampler='emcee',
-            nwalkers = 64,
-            nsteps=20,
-            npool=4, 
-            label=label,
-            outdir=outdir)
+        result = bilby.run_sampler(likelihood=likelihood, 
+                                   priors=bilbypriors, sampler='emcee',
+                                   nwalkers = 64, nsteps=25, npool=64, 
+                                   nburn=0, label=label, outdir=outdir)
 
         result.plot_corner()

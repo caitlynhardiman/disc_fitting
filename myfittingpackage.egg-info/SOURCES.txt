@@ -1,4 +1,11 @@
+.DS_Store
 setup.py
+discpimms.egg-info/PKG-INFO
+discpimms.egg-info/SOURCES.txt
+discpimms.egg-info/dependency_links.txt
+discpimms.egg-info/not-zip-safe
+discpimms.egg-info/top_level.txt
+myfittingpackage/.DS_Store
 myfittingpackage/__init__.py
 myfittingpackage/bilby_likelihood.py
 myfittingpackage/disc.py
@@ -11,3 +18,4 @@ myfittingpackage.egg-info/SOURCES.txt
 myfittingpackage.egg-info/dependency_links.txt
 myfittingpackage.egg-info/not-zip-safe
 myfittingpackage.egg-info/top_level.txt
+myfittingpackage/__pycache__/fitting.cpython-39.pyc

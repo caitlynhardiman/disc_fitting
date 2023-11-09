@@ -6,7 +6,7 @@ import subprocess
 import multiprocess
 
 class mcfost_likelihood(bilby.Likelihood):
-    def __init__(self, x, y, sigma, function, vsyst):
+    def __init__(self, x, y, sigma, method, vsyst):
 
         self.x = x
         self.y = y
@@ -15,7 +15,7 @@ class mcfost_likelihood(bilby.Likelihood):
         for i in range(len(y.shape)):
             n = n*y.shape[i]
         self.N = n
-        self.function = function
+        self.method = method
         self.vsyst = vsyst
 
         super().__init__(parameters={'inclination': None,
@@ -45,7 +45,11 @@ class mcfost_likelihood(bilby.Likelihood):
         dust_mass = self.parameters['dust_mass']
         gasdust_ratio = self.parameters['gasdust_ratio']
 
-        mcfost_model = self.function(self.x, inc, mass, h, rc, rin, psi, pa, dust_param, vturb, dust_mass, gasdust_ratio, self.vsyst)
+        if self.method=='cube':
+            mcfost_model = self.cube_flux(self.x, inc, mass, h, rc, rin, psi, pa, dust_param, vturb, dust_mass, gasdust_ratio, self.vsyst)
+        else:
+            print('only cube fitting implemented for now')
+            return 0
         res = self.y - mcfost_model
 
         return -0.5 * (np.sum((res / self.sigma)**2)
@@ -53,15 +57,16 @@ class mcfost_likelihood(bilby.Likelihood):
 
 
 
-    def cube_flux(velax, inc, mass, h, rc, rin, psi, pa, dust_param, vturb, dust_mass, gasdust_ratio, vsyst, ozstar=False):
+    def cube_flux(self, velax, inc, mass, h, rc, rin, psi, pa, dust_param, vturb, dust_mass, gasdust_ratio, vsyst):
         # Rewrite mcfost para file
         pool_id = multiprocess.current_process()
         pool_id = pool_id.pid
-        if ozstar:
-            jobfs = os.getenv("JOBFS")
-            directory = jobfs+"/"+str(pool_id)
-        else:
-            directory = str(pool_id)
+        # if ozstar:
+        #     jobfs = os.getenv("JOBFS")
+        #     directory = jobfs+"/"+str(pool_id)
+        # else:
+        #     directory = str(pool_id)
+        directory = str(pool_id)
         if os.path.isdir(directory) == False:
             subprocess.call("mkdir "+directory, shell = True)
        
