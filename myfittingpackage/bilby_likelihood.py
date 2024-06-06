@@ -6,7 +6,7 @@ import subprocess
 import multiprocess
 
 class mcfost_likelihood(bilby.Likelihood):
-    def __init__(self, x, y, sigma, method, vsyst):
+    def __init__(self, x, y, sigma, method, vsyst, ozstar):
 
         self.x = x
         self.y = y
@@ -17,6 +17,7 @@ class mcfost_likelihood(bilby.Likelihood):
         self.N = n
         self.method = method
         self.vsyst = vsyst
+        self.ozstar = ozstar
 
         super().__init__(parameters={'inclination': None,
                                      'stellar_mass': None,
@@ -61,12 +62,11 @@ class mcfost_likelihood(bilby.Likelihood):
         # Rewrite mcfost para file
         pool_id = multiprocess.current_process()
         pool_id = pool_id.pid
-        # if ozstar:
-        #     jobfs = os.getenv("JOBFS")
-        #     directory = jobfs+"/"+str(pool_id)
-        # else:
-        #     directory = str(pool_id)
-        directory = str(pool_id)
+        if self.ozstar:
+            jobfs = os.getenv("JOBFS")
+            directory = jobfs+"/"+str(pool_id)
+        else:
+            directory = str(pool_id)
         if os.path.isdir(directory) == False:
             subprocess.call("mkdir "+directory, shell = True)
        
