@@ -14,6 +14,7 @@ from myfittingpackage.bilby_likelihood import mcfost_likelihood
 from myfittingpackage.generate_model import make_model
 from scipy import stats
 from astropy.convolution import Gaussian2DKernel, convolve_fft, convolve
+from astropy.io import fits
 
 
 
@@ -223,6 +224,7 @@ class image_plane_fit:
                  vismode = False,
                  vel_range = None,
                  casa_sim = False,
+                 template_file = 'csalt.para',
                  **kwargs):
         
         if distance is None:
@@ -242,11 +244,7 @@ class image_plane_fit:
             cube.get_std()
             uncertainty = cube.std
 
-        if cube.nx > npix:
-            rescale = npix/cube.nx
-            print('Need to resize cube...')
-            cube = casa.Cube(datacube, zoom=rescale)
-
+        self.cube = cube
         self.bmin = cube.bmin
         self.bmaj = cube.bmaj
         self.bpa = cube.bpa
@@ -265,9 +263,12 @@ class image_plane_fit:
         if vismode:
             if vel_range is not None:
                 if casa_sim:
-                    offset = 6.008
-                    cube.velocity = cube.velocity/1e3
+                    offset = 6008
                     cube.velocity+= offset
+                # checking order of magnitude for units
+                import math
+                if math.floor(math.log10(np.abs(cube.velocity[0]))) != 0:
+                    cube.velocity = cube.velocity/1e3
                 lower = vel_range[0]/1e3
                 upper = vel_range[1]/1e3
                 i_l = np.argmin(np.abs(cube.velocity-lower))
@@ -279,7 +280,9 @@ class image_plane_fit:
                     i_h = new_i_h
                 print(i_l, i_h)
                 self.channels = cube.velocity[i_l:i_h+1]
+                print(self.channels)
                 self.fluxes = flux_vals[i_l:i_h+1]
+                self.update_parafile(parafile=template_file)
             else:
                 print('Provide velocity range for comparing to visibilities')
                 return
@@ -301,10 +304,9 @@ class image_plane_fit:
 
             self.channels = np.array(vel_chans)
             self.fluxes = np.array(fluxes)
-            self.data_line_profile = np.sum(self.fluxes[:, :, :], axis=(1, 2))
+            self.update_parafile()
         
-
-        self.update_parafile()
+        self.data_line_profile = np.sum(self.fluxes[:, :, :], axis=(1, 2))
 
 
         if model_params is not None:
@@ -328,20 +330,30 @@ class image_plane_fit:
 
 
 
-    def update_parafile(self):
+    def update_parafile(self, parafile=None):
 
         import pymcfost as mcfost
 
-        updating = mcfost.Params('model.para')
-
-        updating.map.distance = self.distance
-        updating.mol.molecule[0].nv = len(self.channels)
-        updating.mol.molecule[0].v_min = self.channels[0]
-        updating.mol.molecule[0].v_max = self.channels[-1]
-
-        updating.writeto('model.para')
-
-
+        if parafile is None:
+            parafile = 'model.para'
+        para = mcfost.Params(parafile)
+        para.map.distance = self.distance
+        print('Checking pixelscale!')
+        model_FOV = para.map.size/para.map.distance
+        if self.cube.FOV != model_FOV:
+            size = self.cube.FOV*para.map.distance
+            print('Size should be '+str(size)+' but was '+str(para.map.size))
+            para.map.size = size
+        if self.cube.nx != para.map.nx:
+            print('Npix should be '+str(self.cube.nx)+' but was '+str(para.map.nx))
+            para.map.nx = self.cube.nx
+            para.map.ny = self.cube.ny
+        if parafile == 'model.para':
+            para.mol.molecule[0].nv = len(self.channels)
+            parafile.mol.molecule[0].v_min = self.channels[0]
+            para.mol.molecule[0].v_max = self.channels[-1]
+        
+        para.writeto(parafile)
 
         
     def bilby_mcmc_fit(self, method='cube', nwalkers=64, nsteps=100, npool=16, ozstar=False, outfile=None):
@@ -527,10 +539,10 @@ class image_plane_fit:
                 from myfittingpackage.generate_model_movie import make_model
             mcfost_model = make_model(theta_dict, vsyst=self.vsyst, ozstar=False).model
 
-        # convolve model
+        # # convolve model
         # image = mcfost_model.lines[:, :, :]
-        # sigma_x = self.bmin / mcfost_model.pixelscale * FWHM_to_sigma  # in pixels
-        # sigma_y = self.bmaj / mcfost_model.pixelscale * FWHM_to_sigma  # in pixels
+        # sigma_x = self.bmin / self.pixelscale * FWHM_to_sigma  # in pixels
+        # sigma_y = self.bmaj / self.pixelscale * FWHM_to_sigma  # in pixels
         # beam = Gaussian2DKernel(sigma_x, sigma_y, self.bpa * np.pi / 180)
         # convolved_model = []
         # for iv in range(image.shape[0]):
@@ -550,6 +562,7 @@ class image_plane_fit:
         for i in range(len(self.fluxes.shape)):
             n = n*self.fluxes.shape[i]
         res = self.fluxes - convolved_model
+        fits.writeto('data_from_fits.fits', self.fluxes, overwrite=True)
         logL = -0.5*(np.sum((res / self.uncertainty)**2)
                     + n*np.log(2*np.pi)
                                *self.uncertainty**2)
